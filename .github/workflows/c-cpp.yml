@@ -27,14 +27,26 @@ jobs:
           tar czf $ARTIFACT_NAME -C release wifi-scanner
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
 
+      - name: Set nightly tag
+        run: echo "NIGHTLY_TAG=nightly-$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
+      
       - name: Create Nightly Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: nightly-$(date +%Y%m%d%H%M%S)
-          name: Nightly Build $(date +%Y-%m-%d)
+          tag_name: ${{ env.NIGHTLY_TAG }}
+          name: Nightly Build ${{ env.NIGHTLY_TAG }}
           body: Nightly build of wifi-scanner
           draft: false
           prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.NIGHTLY_TAG }}
+          name: wifi-scanner-${{ env.NIGHTLY_TAG }}.tar.gz
+          asset_path: ${{ env.ARTIFACT_NAME }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
