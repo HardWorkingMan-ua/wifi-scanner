@@ -9,7 +9,7 @@ The WiFi Scanner is a modular C application that uses Linux's nl80211 netlink in
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         main.c                                   │
-│              CLI parsing, timing, sorting, timeout control          │
+│     CLI parsing, timing, sorting, timeout, interface selection   │
 └─────────────────────────────────────────────────────────────────┘
                     │                    │
                     ▼                    ▼
@@ -343,3 +343,30 @@ User runs: sudo ./wifi-scanner -i wlan0 -t 3000 --sort
 8. **Built-in OUI database**: 573 vendor entries included for MAC vendor lookup without external dependencies.
 
 9. **Band detection**: Automatic classification of networks into 2.4/5/6 GHz bands based on frequency.
+
+10. **Interface auto-detection**: When no interface is specified, automatically lists all wireless interfaces with IPs for user selection.
+
+## Interface Auto-Detection
+
+When the `-i` flag is not provided, the scanner automatically discovers and lists all available wireless interfaces:
+
+```c
+static int list_interfaces(char interfaces[][IFNAME_SIZE], char ips[][16], int max);
+static const char* select_interface(void);
+```
+
+### Detection Method
+- Scans `/sys/class/net/*/wireless` for wireless interfaces
+- Gets IPv4 address for each interface using `getifaddrs()`
+- Filters out loopback and non-up interfaces
+
+### User Interaction
+```
+  Available wireless interfaces:
+
+  [1] wlp2s0  (192.168.1.100)
+
+  Select interface [1-1]: 1
+```
+
+This makes the tool more user-friendly, especially for users who don't know their interface name.

@@ -6,24 +6,115 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <net/if.h>
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "Usage: %s [options]\n", prog);
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -i, --interface <name>  Wireless interface to use (required)\n");
+    fprintf(stderr, "  -i, --interface <name>  Wireless interface to use\n");
     fprintf(stderr, "  -t, --timeout <ms>     Scan timeout in milliseconds (default: 2000)\n");
     fprintf(stderr, "  -s, --sort             Sort by signal strength\n");
     fprintf(stderr, "  -j, --json             Output in JSON format\n");
     fprintf(stderr, "  -h, --help             Show this help message\n");
     fprintf(stderr, "\n");
+    fprintf(stderr, "If no interface is specified, shows a list of available interfaces.\n");
+    fprintf(stderr, "\n");
     fprintf(stderr, "Example:\n");
+    fprintf(stderr, "  %s\n", prog);
     fprintf(stderr, "  %s -i wlp2s0\n", prog);
     fprintf(stderr, "  %s -i wlp2s0 --sort\n", prog);
-    fprintf(stderr, "  %s -i wlp2s0 -t 3000\n", prog);
+    fprintf(stderr, "  %s -t 3000\n", prog);
 }
 
 static double time_diff_ms(struct timeval *start, struct timeval *end) {
     return (end->tv_sec - start->tv_sec) * 1000.0 + (end->tv_usec - start->tv_usec) / 1000.0;
+}
+
+static int is_wireless_interface(const char *iface) {
+    char path[256];
+    snprintf(path, sizeof(path), "/sys/class/net/%s/wireless", iface);
+    FILE *f = fopen(path, "r");
+    if (f) {
+        fclose(f);
+        return 1;
+    }
+    return 0;
+}
+
+static int list_interfaces(char interfaces[][IFNAME_SIZE], char ips[][16], int max) {
+    struct ifaddrs *ifaddr, *ifa;
+    int count = 0;
+    
+    if (getifaddrs(&ifaddr) == -1) {
+        return 0;
+    }
+    
+    for (ifa = ifaddr; ifa != NULL && count < max; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL) continue;
+        if (ifa->ifa_addr->sa_family != AF_INET) continue;
+        if (!(ifa->ifa_flags & IFF_UP)) continue;
+        if (ifa->ifa_flags & IFF_LOOPBACK) continue;
+        
+        if (is_wireless_interface(ifa->ifa_name)) {
+            strncpy(interfaces[count], ifa->ifa_name, IFNAME_SIZE - 1);
+            interfaces[count][IFNAME_SIZE - 1] = '\0';
+            
+            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+            inet_ntop(AF_INET, &addr->sin_addr, ips[count], 16);
+            
+            count++;
+        }
+    }
+    
+    freeifaddrs(ifaddr);
+    return count;
+}
+
+static const char* select_interface(void) {
+    char interfaces[16][IFNAME_SIZE];
+    char ips[16][16];
+    static char selected[IFNAME_SIZE];
+    
+    int count = list_interfaces(interfaces, ips, 16);
+    
+    if (count == 0) {
+        fprintf(stderr, "No wireless interfaces found.\n");
+        return NULL;
+    }
+    
+    printf("\n  Available wireless interfaces:\n\n");
+    
+    for (int i = 0; i < count; i++) {
+        printf("  [%d] %s", i + 1, interfaces[i]);
+        if (ips[i][0]) {
+            printf("  (%s)", ips[i]);
+        }
+        printf("\n");
+    }
+    
+    printf("\n  Select interface [1-%d]: ", count);
+    fflush(stdout);
+    
+    char line[32];
+    if (!fgets(line, sizeof(line), stdin)) {
+        return NULL;
+    }
+    
+    int choice = atoi(line);
+    if (choice < 1 || choice > count) {
+        fprintf(stderr, "Invalid selection.\n");
+        return NULL;
+    }
+    
+    strncpy(selected, interfaces[choice - 1], IFNAME_SIZE - 1);
+    selected[IFNAME_SIZE - 1] = '\0';
+    
+    return selected;
 }
 
 int main(int argc, char **argv) {
@@ -32,6 +123,7 @@ int main(int argc, char **argv) {
     int sort_by_signal = 0;
     int timeout_ms = DEFAULT_TIMEOUT_MS;
     struct timeval start, end;
+    int interface_selected = 0;
     
     static struct option long_options[] = {
         {"interface", required_argument, 0, 'i'},
@@ -75,9 +167,11 @@ int main(int argc, char **argv) {
     }
     
     if (!iface) {
-        fprintf(stderr, "Error: Interface not specified\n");
-        print_usage(argv[0]);
-        return 1;
+        iface = select_interface();
+        if (!iface) {
+            return 1;
+        }
+        interface_selected = 1;
     }
     
     scanner_ctx_t ctx;
@@ -89,6 +183,9 @@ int main(int argc, char **argv) {
     
     ctx.timeout_ms = timeout_ms;
     
+    if (interface_selected) {
+        printf("\n");
+    }
     printf("Scanning for WiFi networks on interface %s (timeout: %dms)...\n", iface, timeout_ms);
     
     gettimeofday(&start, NULL);

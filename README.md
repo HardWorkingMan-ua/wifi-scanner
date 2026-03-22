@@ -16,6 +16,7 @@ A lightweight C application for scanning and displaying nearby WiFi networks wit
 - Configurable scan timeout
 - Display scan duration
 - Automatic fallback to cached results when interface is busy
+- **Auto-detect interfaces** - lists all wireless interfaces with IP if none specified
 
 ## Requirements
 
@@ -44,6 +45,20 @@ make
 ```
 
 ## Usage
+
+### Auto-Detect Interface
+
+If no interface is specified, the program will list all available wireless interfaces with their IP addresses:
+
+```bash
+sudo ./wifi-scanner
+
+  Available wireless interfaces:
+
+  [1] wlp2s0  (192.168.1.100)
+
+  Select interface [1-1]: 1
+```
 
 ### Basic Scan
 
