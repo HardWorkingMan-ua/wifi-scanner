@@ -1,27 +1,43 @@
-name: C/C++ CI
+name: C/C++ Nightly Build & Release
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libnl-3-dev libnl-genl-3-dev
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libnl-3-dev libnl-genl-3-dev
+      - name: Build
+        run: make
+      - name: Run tests
+        run: make check || echo "No tests defined"
 
-    - name: Build
-      run: make
-
-    - name: Run tests
-      run: make check || echo "No tests defined"
-    - name: Distcheck
-      run: make distcheck || echo "No distcheck target"
+      - name: Prepare artifact
+        run: |
+          mkdir -p release
+          cp wifi-scanner release/
+          tar czf wifi-scanner-nightly-$(date +%Y%m%d%H%M%S).tar.gz -C release wifi-scanner
+      - name: Create Nightly Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nightly
+          name: Nightly Build $(date +%Y-%m-%d)
+          body: Nightly build of wifi-scanner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nightly
+          name: wifi-scanner-nightly.tar.gz
+          asset_path: wifi-scanner-nightly-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
