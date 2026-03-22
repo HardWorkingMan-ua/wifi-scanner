@@ -5,13 +5,17 @@ A lightweight C application for scanning and displaying nearby WiFi networks wit
 ## Features
 
 - Scan nearby WiFi networks using Linux nl80211/cfg80211
-- Display SSID, BSSID (MAC), channel, and signal strength
+- Display SSID, BSSID (MAC), vendor, channel, and signal strength
 - Detect security type: Open, WEP, WPA, WPA2, WPA3
 - Show cipher type: CCMP, TKIP, GCMP, etc.
+- Detect WiFi band: 2.4 GHz, 5 GHz, 6 GHz
+- MAC vendor lookup from OUI database (573 vendors)
 - Human-readable table output or JSON format
 - Sort networks by signal strength
 - Show hidden SSIDs
+- Configurable scan timeout
 - Display scan duration
+- Automatic fallback to cached results when interface is busy
 
 ## Requirements
 
@@ -53,10 +57,22 @@ sudo ./wifi-scanner -i wlan0
 sudo ./wifi-scanner -i wlan0 --sort
 ```
 
+### Custom Timeout (in milliseconds)
+
+```bash
+sudo ./wifi-scanner -i wlan0 --timeout 3000
+```
+
 ### JSON Output (for scripting)
 
 ```bash
 sudo ./wifi-scanner -i wlan0 -j
+```
+
+### Combined Options
+
+```bash
+sudo ./wifi-scanner -i wlan0 --sort --timeout 4000
 ```
 
 ### Help
@@ -71,15 +87,16 @@ sudo ./wifi-scanner -i wlan0 -j
 
 ```
   WiFi Networks on wlp2s0
-  ────────────────────────────────────────────────────────────────────────────────
-   SSID                 BSSID               Security    Cipher   Ch   Signal
-  ────────────────────────────────────────────────────────────────────────────────
-   HomeWiFi             AA:BB:CC:DD:EE:FF  WPA2       CCMP      6    85% ●●●●●
-   Guest                77:88:99:00:AA:BB  Open       None      1    45% ●●●○○
-  ────────────────────────────────────────────────────────────────────────────────
-   2 networks found
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────
+   SSID                 Vendor        BSSID               Security    Band      Cipher   Ch   Signal
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────
+   HomeWiFi             TP-Link       AA:BB:CC:DD:EE:FF  WPA2       2.4 GHz   CCMP      6    85% ●●●●●
+   Office5G             Huawei        11:22:33:44:55:66  WPA2       5 GHz     CCMP     36    72% ●●●●○
+   Guest                Unknown       77:88:99:00:AA:BB  Open       2.4 GHz   None      1    45% ●●●○○
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────
+   3 networks found
 
-  Scan completed in 2150 ms
+  Scan completed in 5150 ms
 ```
 
 ### Field Descriptions
@@ -87,8 +104,10 @@ sudo ./wifi-scanner -i wlan0 -j
 | Field | Description |
 |-------|-------------|
 | SSID | Network name (or `<hidden>` if not broadcasting) |
+| Vendor | Manufacturer from MAC OUI lookup |
 | BSSID | Access point MAC address (XX:XX:XX:XX:XX:XX) |
 | Security | Encryption type (Open, WEP, WPA, WPA2, WPA3) |
+| Band | WiFi frequency band (2.4 GHz, 5 GHz, 6 GHz) |
 | Cipher | Encryption cipher (CCMP, TKIP, GCMP, etc.) |
 | Ch | WiFi channel number |
 | Signal | Signal strength as percentage and visual bar |
@@ -103,14 +122,22 @@ sudo ./wifi-scanner -i wlan0 -j
 | 20-39% | Weak | ●●○○○ |
 | 0-19% | Poor | ●○○○○ |
 
+### WiFi Bands
+
+| Band | Frequency | Channels |
+|------|-----------|----------|
+| 2.4 GHz | 2400-2500 MHz | 1-14 |
+| 5 GHz | 5150-5900 MHz | 36-165 |
+| 6 GHz | 5925-7125 MHz | 1-233 |
+
 ## Project Structure
 
 ```
 wifi-scanner/
 ├── src/
 │   ├── main.c       # Entry point, CLI parsing
-│   ├── scanner.c    # nl80211 netlink scanning
-│   ├── scanner.h    # Scanner types and API
+│   ├── scanner.c     # nl80211 netlink scanning, vendor lookup
+│   ├── scanner.h     # Scanner types and API
 │   ├── parser.c     # IE parsing for security
 │   ├── parser.h     # Parser API
 │   ├── display.c    # Output formatting
@@ -127,7 +154,7 @@ wifi-scanner/
 
 The scanner uses the nl80211 netlink interface to communicate with the Linux kernel's cfg80211 subsystem:
 
-1. **Scanner Module** - Opens netlink socket, sends NL80211_CMD_TRIGGER_SCAN, receives results
+1. **Scanner Module** - Opens netlink socket, sends NL80211_CMD_TRIGGER_SCAN, receives results, performs vendor lookup, band detection
 2. **Parser Module** - Parses Information Elements (IEs) to extract security info
 3. **Display Module** - Formats output as table or JSON
 
@@ -141,6 +168,31 @@ The scanner detects security by parsing:
 - **Privacy bit** - Determines WEP vs Open
 
 See [docs/SECURITY_DETECTION.md](docs/SECURITY_DETECTION.md) for detailed algorithm.
+
+## Vendor Lookup
+
+The scanner includes a built-in OUI (Organizationally Unique Identifier) database with 573 entries to identify manufacturers from MAC addresses. Supported vendors include:
+
+- Apple, Intel, Dell, HP
+- Cisco, Netgear, Linksys, Asus
+- TP-Link, Huawei, Xiaomi, Honor
+- Google, Microsoft, D-Link
+- Tenda, Mercusys, and many more
+
+## Error Handling
+
+### Interface Busy
+
+If the interface is busy (connected to a network), the scanner will automatically use cached scan results:
+
+```
+Note: Using cached scan results (interface is busy)
+```
+
+To force a new scan, disconnect first:
+```bash
+sudo nmcli dev disconnect wlan0
+```
 
 ## License
 

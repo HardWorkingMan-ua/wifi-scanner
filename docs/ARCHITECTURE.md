@@ -9,27 +9,27 @@ The WiFi Scanner is a modular C application that uses Linux's nl80211 netlink in
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         main.c                                   │
-│              CLI parsing, timing, sorting                        │
+│              CLI parsing, timing, sorting, timeout control          │
 └─────────────────────────────────────────────────────────────────┘
                     │                    │
                     ▼                    ▼
 ┌─────────────────────────┐  ┌─────────────────────────┐
-│      scanner.c          │  │      parser.c         │
-│  nl80211 netlink ops   │──▶│   IE parsing         │
-│  Scan triggering       │  │   Security detection  │
+│      scanner.c          │  │      parser.c           │
+│  nl80211 netlink ops   │──▶│   IE parsing           │
+│  Scan triggering       │  │   Security detection    │
 │  Result collection     │  └─────────────────────────┘
-└─────────────────────────┘                │
-                                        ▼
-                            ┌─────────────────────────┐
-                            │      display.c         │
-                            │   Table/JSON output   │
-                            └─────────────────────────┘
+│  Vendor lookup         │                │
+│  Band detection       │                ▼
+└─────────────────────────┘    ┌─────────────────────────┐
+                               │      display.c         │
+                               │   Table/JSON output   │
+                               └─────────────────────────┘
 ```
 
 ## Scanner Module (scanner.c)
 
 ### Purpose
-Handles all communication with the Linux kernel via netlink sockets using the nl80211 generic netlink family.
+Handles all communication with the Linux kernel via netlink sockets using the nl80211 generic netlink family. Also performs vendor lookup and band detection.
 
 ### Key Components
 
@@ -42,30 +42,33 @@ int scanner_init(scanner_ctx_t *ctx, const char *iface)
 - Resolves nl80211 family ID using genl_ctrl_resolve()
 - Gets interface index using if_nametoindex()
 - Sets socket buffer size to 8192 bytes
+- Initializes timeout to DEFAULT_TIMEOUT_MS (2000ms)
 
 #### 2. Scan Triggering (`scanner_scan`)
 ```
-┌─────────────────┐
-│ NL80211_CMD_TRIGGER_SCAN │
-│   └─ NL80211_ATTR_IFINDEX     │  (target interface)
-│   └─ NL80211_ATTR_SCAN_SSIDS  │  (wildcard scan)
-└─────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Wait ~2 seconds │  (for scan to complete)
-└─────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│ NL80211_CMD_GET_SCAN │  (NLM_F_DUMP)
-└─────────────────┘
-         │
-         ▼
 ┌─────────────────────────────┐
-│ Parse each BSS entry        │
-│ via scan_callback()         │
+│ NL80211_CMD_TRIGGER_SCAN    │
+│   └─ NL80211_ATTR_IFINDEX   │  (target interface)
+│   └─ NL80211_ATTR_SCAN_SSIDS│  (wildcard scan)
 └─────────────────────────────┘
+              │
+              ▼ (if busy, use cached results)
+┌─────────────────────────────┐
+│ Wait timeout_ms             │  (configurable)
+└─────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────┐
+│ NL80211_CMD_GET_SCAN       │  (NLM_F_DUMP)
+└─────────────────────────────┘
+              │
+              ▼
+┌──────────────────────────────────────┐
+│ For each BSS entry:                 │
+│  - scan_callback()                   │
+│  - Vendor lookup (OUI database)      │
+│  - Band detection (2.4/5/6 GHz)     │
+└──────────────────────────────────────┘
 ```
 
 #### 3. Callback System
@@ -76,8 +79,10 @@ The scanner uses libnl's callback mechanism to process messages:
   - BSSID (MAC address)
   - Signal strength (dBm)
   - Frequency → Channel conversion
+  - Band detection (2.4/5/6 GHz)
   - Information Elements (IEs) for security
   - Capability flags (privacy bit)
+  - Vendor lookup from MAC address
 
 - **`ack_callback()`** - Called when acknowledgment is received for trigger scan
 
@@ -103,8 +108,33 @@ typedef struct {
     int nl80211_id;                 // nl80211 family ID
     wifi_network_t networks[MAX_NETWORKS];  // Results buffer
     int network_count;               // Number of networks found
+    int timeout_ms;                 // Scan timeout in milliseconds
 } scanner_ctx_t;
 ```
+
+### Vendor Lookup
+
+The scanner includes a built-in OUI (Organizationally Unique Identifier) database with 573 entries:
+
+```c
+const char *get_vendor(const char *bssid);
+```
+
+- Matches first 8 characters (MAC prefix) of BSSID
+- Supports major vendors: Apple, Intel, TP-Link, Huawei, Xiaomi, Netgear, etc.
+- Returns "Unknown" for unrecognized MACs
+
+### Band Detection
+
+```c
+static wifi_band_t frequency_to_band(int freq_mhz);
+```
+
+| Frequency Range | Band |
+|----------------|------|
+| 2400-2500 MHz | BAND_2_4GHZ |
+| 5150-5900 MHz | BAND_5GHZ |
+| 5925-7125 MHz | BAND_6GHZ |
 
 ## Parser Module (parser.c)
 
@@ -125,7 +155,7 @@ IEs are variable-length TLV (Type-Length-Value) structures:
 #### Key IEs for Security
 
 | Element ID | Name | Used For |
-|-----------|------|----------|
+|-----------|------|---------|
 | 0 | SSID | Network name |
 | 48 | RSN | WPA2/WPA3 security |
 | 221 | Vendor Specific (WPA) | Legacy WPA |
@@ -135,9 +165,9 @@ IEs are variable-length TLV (Type-Length-Value) structures:
 ```
 ┌──────────────────────────────────────┐
 │ Loop through all IEs                 │
-│  ├─ Element 0: Extract SSID        │
-│  ├─ Element 48: Store RSN pointer  │
-│  └─ Element 221: Check WPA OUI     │
+│  ├─ Element 0: Extract SSID          │
+│  ├─ Element 48: Store RSN pointer    │
+│  └─ Element 221: Check WPA OUI        │
 └──────────────────────────────────────┘
                   │
                   ▼
@@ -145,14 +175,14 @@ IEs are variable-length TLV (Type-Length-Value) structures:
 │ RSN IE found?                        │
 │  └─ parse_rsn_ie()                  │
 ├──────────────────────────────────────┤
-│ WPA IE found?                        │
-│  └─ parse_wpa_vendor_ie()          │
+│ WPA IE found?                         │
+│  └─ parse_wpa_vendor_ie()           │
 ├──────────────────────────────────────┤
-│ Privacy bit set?                     │
-│  └─ SECURITY_WEP                    │
+│ Privacy bit set?                      │
+│  └─ SECURITY_WEP                     │
 ├──────────────────────────────────────┤
-│ Nothing found?                       │
-│  └─ SECURITY_OPEN                   │
+│ Nothing found?                        │
+│  └─ SECURITY_OPEN                    │
 └──────────────────────────────────────┘
 ```
 
@@ -162,8 +192,8 @@ RSN IE structure (per IEEE 802.11):
 
 ```
 ┌──────────┬──────────┬──────────────┬──────────────┬──────────┐
-│ Version  │ GC/PC   │ PC Count     │ PC List      │ AC Count │
-│ (2 B)    │ (4 B)   │ (2 B)       │ (4×N B)     │ (2 B)   │
+│ Version  │ GC/PC   │ PC Count    │ PC List      │ AC Count │
+│ (2 B)    │ (4 B)   │ (2 B)       │ (4×N B)     │ (2 B)    │
 └──────────┴──────────┴──────────────┴──────────────┴──────────┘
      │           │                              │
      │           │                              ▼
@@ -223,8 +253,8 @@ Signal strength is converted from dBm to percentage:
 ```c
 static int dbm_to_percent(int dbm) {
     if (dbm >= -50) return 100;   // Excellent
-    if (dbm <= -100) return 0;   // Poor
-    return 2 * (dbm + 100);      // Linear scale
+    if (dbm <= -100) return 0;     // Poor
+    return 2 * (dbm + 100);       // Linear scale
 }
 ```
 
@@ -245,7 +275,7 @@ Frequency to channel conversion:
 if (freq >= 2400 && freq <= 2500) {
     // 2.4 GHz band
     channel = (freq - 2400) / 5;
-} else if (freq >= 5000 && freq <= 5900) {
+} else if (freq >= 5150 && freq <= 5900) {
     // 5 GHz band (U-NII)
     channel = (freq - 5000) / 5;
 } else if (freq >= 5955 && freq <= 7115) {
@@ -257,10 +287,10 @@ if (freq >= 2400 && freq <= 2500) {
 ## Data Flow Summary
 
 ```
-User runs: sudo ./wifi-scanner -i wlan0
+User runs: sudo ./wifi-scanner -i wlan0 -t 3000 --sort
                     │
                     ▼
-           main.c: Parse CLI args
+           main.c: Parse CLI args (interface, timeout, sort)
                     │
                     ▼
            scanner_init(): Create netlink socket
@@ -269,17 +299,26 @@ User runs: sudo ./wifi-scanner -i wlan0
            scanner_scan(): Send NL80211_CMD_TRIGGER_SCAN
                     │
                     ▼
-           Wait 2 seconds for scan completion
+           If busy (connected): use cached results
+                    │
+                    ▼
+           Wait configurable timeout (default 2000ms)
                     │
                     ▼
            Send NL80211_CMD_GET_SCAN (dump)
                     │
                     ▼
            For each BSS entry:
-             scan_callback() → parse_ies_raw() → detect security
+             scan_callback() 
+               → parse_ies_raw() → detect security
+               → get_vendor() → lookup MAC vendor
+               → frequency_to_band() → detect WiFi band
                     │
                     ▼
-           display_results(): Format table
+           Copy results for sorting (if --sort)
+                    │
+                    ▼
+           display_results(): Format table with vendor, band
                     │
                     ▼
            Print output with timing info
@@ -296,3 +335,11 @@ User runs: sudo ./wifi-scanner -i wlan0
 4. **SAX-like IE parsing**: Manual byte parsing with bounds checking for maximum compatibility.
 
 5. **No dynamic allocation in scan loop**: Pre-allocated array of MAX_NETWORKS entries for predictable memory usage.
+
+6. **Configurable timeout**: User can specify scan wait time via `-t` flag, defaulting to 2000ms.
+
+7. **Fallback to cached results**: If interface is busy (connected), automatically uses cached scan results instead of failing.
+
+8. **Built-in OUI database**: 573 vendor entries included for MAC vendor lookup without external dependencies.
+
+9. **Band detection**: Automatic classification of networks into 2.4/5/6 GHz bands based on frequency.

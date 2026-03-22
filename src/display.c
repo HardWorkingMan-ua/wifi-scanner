@@ -21,24 +21,27 @@ void display_results(const wifi_network_t *networks, int count, const char *ifac
     printf("\n");
     printf("  WiFi Networks on %s\n", iface);
     printf("  ");
-    for (int i = 0; i < 80; i++) printf("─");
+    for (int i = 0; i < 100; i++) printf("─");
     printf("\n");
-    printf("  %-20s %-18s %-10s %-8s %4s %s\n", 
-           "SSID", "BSSID", "Security", "Cipher", "Ch", "Signal");
+    printf("  %-20s %-12s %-15s %-10s %-5s %-8s %4s %s\n", 
+           "SSID", "Vendor", "BSSID", "Security", "Band", "Cipher", "Ch", "Signal");
     printf("  ");
-    for (int i = 0; i < 80; i++) printf("─");
+    for (int i = 0; i < 100; i++) printf("─");
     printf("\n");
     
     for (int i = 0; i < count; i++) {
         const wifi_network_t *net = &networks[i];
         const char *ssid = net->ssid[0] ? net->ssid : "<hidden>";
         const char *security = security_to_string(net->security);
+        const char *band = band_to_string(net->band);
         int percent = dbm_to_percent(net->signal_dbm);
         
-        printf("  %-20s %-18s %-10s %-8s %4d %3d%% %s\n",
+        printf("  %-20s %-12s %-15s %-10s %-5s %-8s %4d %3d%% %s\n",
                ssid,
+               net->vendor,
                net->bssid,
                security,
+               band,
                net->cipher,
                net->channel,
                percent,
@@ -46,7 +49,7 @@ void display_results(const wifi_network_t *networks, int count, const char *ifac
     }
     
     printf("  ");
-    for (int i = 0; i < 80; i++) printf("─");
+    for (int i = 0; i < 100; i++) printf("─");
     printf("\n");
     printf("  %d network%s found\n\n", count, count == 1 ? "" : "s");
 }
@@ -64,9 +67,11 @@ void display_json(const wifi_network_t *networks, int count, const char *iface) 
         printf("    {\n");
         printf("      \"ssid\": \"%s\",\n", net->ssid);
         printf("      \"ssid_hidden\": %s,\n", net->ssid[0] ? "false" : "true");
+        printf("      \"vendor\": \"%s\",\n", net->vendor);
         printf("      \"bssid\": \"%s\",\n", net->bssid);
         printf("      \"security\": \"%s\",\n", security_to_string(net->security));
         printf("      \"cipher\": \"%s\",\n", net->cipher);
+        printf("      \"band\": \"%s\",\n", band_to_string(net->band));
         printf("      \"signal_dbm\": %d,\n", net->signal_dbm);
         printf("      \"signal_percent\": %d,\n", percent);
         printf("      \"channel\": %d,\n", net->channel);

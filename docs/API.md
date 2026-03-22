@@ -10,22 +10,26 @@ Represents a single WiFi network discovered during scanning.
 typedef struct {
     char ssid[33];              // Network name (max 32 chars + null)
     char bssid[18];            // MAC address (XX:XX:XX:XX:XX:XX)
+    char vendor[64];           // Vendor/manufacturer name
     security_type_t security;   // Security type enum
     char cipher[16];           // Cipher suite name
     int signal_dbm;            // Signal strength in dBm
     int channel;               // WiFi channel number
     int frequency_mhz;         // Frequency in MHz
+    wifi_band_t band;          // WiFi band (2.4/5/6 GHz)
 } wifi_network_t;
 ```
 
 **Fields:**
 - `ssid`: Network name. Empty string indicates hidden network.
 - `bssid`: Access point MAC address in XX:XX:XX:XX:XX:XX format.
+- `vendor`: Manufacturer name from OUI lookup (e.g., "TP-Link", "Huawei").
 - `security`: Enum value indicating security type.
 - `cipher`: Human-readable cipher name (CCMP, TKIP, GCMP, etc.).
 - `signal_dbm`: Signal strength in decibel-milliwatts. Range typically -100 to -30 dBm.
 - `channel`: WiFi channel number (1-165 depending on band).
 - `frequency_mhz`: Exact frequency in megahertz.
+- `band`: WiFi frequency band enum.
 
 ### security_type_t
 
@@ -35,12 +39,25 @@ Enum representing WiFi security types.
 typedef enum {
     SECURITY_OPEN,       // No encryption
     SECURITY_WEP,        // Wired Equivalent Privacy (deprecated)
-    SECURITY_WPA,       // WiFi Protected Access (legacy)
-    SECURITY_WPA2,      // WPA2 with PSK or Enterprise
-    SECURITY_WPA3,      // WPA3 with SAE or OWE
-    SECURITY_WPA2_WPA3, // Mixed mode (transition)
+    SECURITY_WPA,        // WiFi Protected Access (legacy)
+    SECURITY_WPA2,       // WPA2 with PSK or Enterprise
+    SECURITY_WPA3,       // WPA3 with SAE or OWE
+    SECURITY_WPA2_WPA3,  // Mixed mode (transition)
     SECURITY_UNKNOWN     // Unable to determine
 } security_type_t;
+```
+
+### wifi_band_t
+
+Enum representing WiFi frequency bands.
+
+```c
+typedef enum {
+    BAND_UNKNOWN,
+    BAND_2_4GHZ,
+    BAND_5GHZ,
+    BAND_6GHZ
+} wifi_band_t;
 ```
 
 ### scanner_ctx_t
@@ -55,6 +72,7 @@ typedef struct {
     int nl80211_id;                // nl80211 family ID
     wifi_network_t networks[MAX_NETWORKS];  // Results
     int network_count;              // Number of results
+    int timeout_ms;                // Scan timeout in milliseconds
 } scanner_ctx_t;
 ```
 
@@ -108,9 +126,10 @@ int scanner_scan(scanner_ctx_t *ctx);
 
 **Behavior:**
 1. Sends NL80211_CMD_TRIGGER_SCAN to kernel
-2. Waits 2 seconds for scan completion
-3. Dumps all scan results
-4. Parses each BSS entry for SSID, security, signal, etc.
+2. If interface is busy (connected), uses cached results automatically
+3. Waits `timeout_ms` milliseconds for scan completion (default 2000ms)
+4. Dumps all scan results
+5. Parses each BSS entry for SSID, security, signal, vendor, band, etc.
 
 **Note:** Requires root privileges.
 
@@ -147,7 +166,9 @@ const wifi_network_t *scanner_get_networks(scanner_ctx_t *ctx, int *count);
 int count;
 const wifi_network_t *networks = scanner_get_networks(&ctx, &count);
 for (int i = 0; i < count; i++) {
-    printf("%s: %d dBm\n", networks[i].ssid, networks[i].signal_dbm);
+    printf("%s: %s (%s)\n", networks[i].ssid, 
+           networks[i].vendor, 
+           band_to_string(networks[i].band));
 }
 ```
 
@@ -205,6 +226,54 @@ scanner_cleanup(&ctx);  // Call when done
 
 ---
 
+### get_vendor
+
+Looks up vendor name from MAC address using OUI database.
+
+```c
+const char *get_vendor(const char *bssid);
+```
+
+**Parameters:**
+- `bssid`: MAC address string (XX:XX:XX:XX:XX:XX format)
+
+**Returns:**
+- Vendor name string (e.g., "TP-Link", "Huawei", "Apple")
+- "Unknown" if not found
+
+**Example:**
+```c
+printf("Vendor: %s\n", get_vendor("d8:0d:17:ab:3e:f6"));
+```
+
+---
+
+### band_to_string
+
+Converts band enum to human-readable string.
+
+```c
+const char *band_to_string(wifi_band_t band);
+```
+
+**Parameters:**
+- `band`: WiFi band enum value
+
+**Returns:**
+| Enum Value | String |
+|------------|--------|
+| BAND_2_4GHZ | "2.4 GHz" |
+| BAND_5GHZ | "5 GHz" |
+| BAND_6GHZ | "6 GHz" |
+| BAND_UNKNOWN | "Unknown" |
+
+**Example:**
+```c
+printf("Band: %s\n", band_to_string(net->band));
+```
+
+---
+
 ## Parser Functions
 
 ### parse_ies_raw
@@ -244,8 +313,6 @@ const char *security_to_string(security_type_t sec);
 - `sec`: Security type enum value
 
 **Returns:**
-- Pointer to static string
-
 | Enum Value | String |
 |------------|--------|
 | SECURITY_OPEN | "Open" |
@@ -272,18 +339,22 @@ printf("Security: %s\n", security_to_string(net->security));
 #include <stdlib.h>
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <interface>\n", argv[0]);
-        return 1;
-    }
+    const char *iface = NULL;
+    int timeout_ms = DEFAULT_TIMEOUT_MS;
+    
+    // Parse args...
+    // -i interface, -t timeout, -s sort, -j json
     
     scanner_ctx_t ctx;
     
-    if (scanner_init(&ctx, argv[1]) < 0) {
+    if (scanner_init(&ctx, iface) < 0) {
         return 1;
     }
     
-    printf("Scanning...\n");
+    ctx.timeout_ms = timeout_ms;
+    
+    printf("Scanning on %s (timeout: %dms)...\n", iface, timeout_ms);
+    
     int count = scanner_scan(&ctx);
     
     if (count < 0) {
@@ -295,13 +366,41 @@ int main(int argc, char **argv) {
     wifi_network_t *networks = scanner_get_networks_copy(&ctx, &network_count);
     
     if (networks) {
-        display_results(networks, network_count, argv[1]);
+        display_results(networks, network_count, iface);
         free(networks);
     }
     
     scanner_cleanup(&ctx);
     return 0;
 }
+```
+
+---
+
+## Constants
+
+### DEFAULT_TIMEOUT_MS
+
+Default scan timeout in milliseconds.
+
+```c
+#define DEFAULT_TIMEOUT_MS 2000
+```
+
+### MAX_NETWORKS
+
+Maximum number of networks that can be stored.
+
+```c
+#define MAX_NETWORKS 128
+```
+
+### IFNAME_SIZE
+
+Maximum interface name length.
+
+```c
+#define IFNAME_SIZE 32
 ```
 
 ---
@@ -322,3 +421,11 @@ All functions that can fail return:
 - Positive value or zero on success (check docs)
 
 Error messages are printed to stderr. For custom error handling, you may want to capture stderr or implement wrapper functions.
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "nl80211 interface not found" | No wireless support | Check kernel config |
+| "Interface not found" | Wrong interface name | Use `ip link` to list interfaces |
+| "Object busy" | Connected to WiFi | Use cached results automatically, or disconnect |

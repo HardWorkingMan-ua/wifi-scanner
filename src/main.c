@@ -11,13 +11,15 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "Usage: %s [options]\n", prog);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -i, --interface <name>  Wireless interface to use (required)\n");
-    fprintf(stderr, "  -s, --sort              Sort by signal strength\n");
+    fprintf(stderr, "  -t, --timeout <ms>     Scan timeout in milliseconds (default: 2000)\n");
+    fprintf(stderr, "  -s, --sort             Sort by signal strength\n");
     fprintf(stderr, "  -j, --json             Output in JSON format\n");
     fprintf(stderr, "  -h, --help             Show this help message\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Example:\n");
     fprintf(stderr, "  %s -i wlp2s0\n", prog);
     fprintf(stderr, "  %s -i wlp2s0 --sort\n", prog);
+    fprintf(stderr, "  %s -i wlp2s0 -t 3000\n", prog);
 }
 
 static double time_diff_ms(struct timeval *start, struct timeval *end) {
@@ -28,10 +30,12 @@ int main(int argc, char **argv) {
     const char *iface = NULL;
     int use_json = 0;
     int sort_by_signal = 0;
+    int timeout_ms = DEFAULT_TIMEOUT_MS;
     struct timeval start, end;
     
     static struct option long_options[] = {
         {"interface", required_argument, 0, 'i'},
+        {"timeout", required_argument, 0, 't'},
         {"sort", no_argument, 0, 's'},
         {"json", no_argument, 0, 'j'},
         {"help", no_argument, 0, 'h'},
@@ -39,10 +43,21 @@ int main(int argc, char **argv) {
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "i:sjh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "i:t:sjh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'i':
                 iface = optarg;
+                break;
+            case 't':
+                timeout_ms = atoi(optarg);
+                if (timeout_ms < 500) {
+                    fprintf(stderr, "Warning: Timeout too small, using 500ms minimum\n");
+                    timeout_ms = 500;
+                }
+                if (timeout_ms > 30000) {
+                    fprintf(stderr, "Warning: Timeout too large, using 30000ms maximum\n");
+                    timeout_ms = 30000;
+                }
                 break;
             case 's':
                 sort_by_signal = 1;
@@ -72,7 +87,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     
-    printf("Scanning for WiFi networks on interface %s...\n", iface);
+    ctx.timeout_ms = timeout_ms;
+    
+    printf("Scanning for WiFi networks on interface %s (timeout: %dms)...\n", iface, timeout_ms);
     
     gettimeofday(&start, NULL);
     int count = scanner_scan(&ctx);

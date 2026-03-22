@@ -100,8 +100,8 @@ AKM Detection:
 │      or OWE (0x000FAC06)                               │
 │      └─▶ SECURITY_WPA3                                  │
 │                                                          │
-│  PSK (0x000FAC02) or FT-PSK (0x000FAC04)              │
-│      or EAP (0x000FAC18/0x000FAC12)                    │
+│  PSK (0x000FAC02) or FT-PSK (0x000FAC04)               │
+│      or EAP (0x000FAC18/0x000FAC12)                     │
 │      └─▶ SECURITY_WPA2                                  │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -112,7 +112,7 @@ Legacy WPA uses a Vendor-Specific IE with Microsoft WPA OUI:
 
 ```
 WPA Vendor IE:
-┌─────────┬─────────┬────────────┬──────────────────┐
+┌─────────┬─────────┬───────────┬──────────────────┐
 │ OUI     │ Type    │ Version   │ Cipher Info       │
 │ (3 B)   │ (1 B)   │ (2 B)    │ ...              │
 └─────────┴─────────┴───────────┴──────────────────┘
@@ -126,8 +126,8 @@ If no RSN or WPA IE is found, check the Privacy bit in the Capability field:
 ```
 Capability Field (2 bytes):
 ┌────┬────┬────┬────┬────┬────┬────┬────┬─...─┐
-│ ESS │ IBSS│ CF │ CF │ Privacy │ ... │
-│ Bit │ Bit│ Pol│ Pol│  Bit   │     │
+│ ESS │ IBSS│ CF │ CF │Privacy│ ... │
+│ Bit │ Bit│ Pol│ Pol│ Bit   │     │
 │  0  │  1 │  2 │  3 │   4    │     │
 └────┴────┴────┴────┴────┴────┴────┴─...─┘
 ```
@@ -220,9 +220,43 @@ Critical for security - always validate:
 - Element ID 0 and 221 have minimum lengths
 - Count fields don't cause buffer overflow
 
+## Vendor Identification
+
+The scanner uses OUI (Organizationally Unique Identifier) lookup to identify the manufacturer of access points based on their MAC address.
+
+### How It Works
+
+```
+MAC Address: XX:XX:XX:YY:YY:YY
+                ↑
+            OUI (First 3 bytes)
+```
+
+- First 3 bytes (OUI) identify the manufacturer
+- Remaining 3 bytes (NIC) identify the specific device
+- Database contains 573 common vendor OUIs
+
+### Supported Vendors
+
+The scanner includes 573 vendor entries including:
+
+| Vendor | Description |
+|--------|-------------|
+| TP-Link | 18 OUI prefixes |
+| Huawei | 250+ OUI prefixes |
+| Xiaomi | 25+ OUI prefixes |
+| Apple | 3+ OUI prefixes |
+| Intel | 7+ OUI prefixes |
+| Netgear | 20+ OUI prefixes |
+| D-Link | 30+ OUI prefixes |
+| Linksys | 8+ OUI prefixes |
+| Cisco | 2+ OUI prefixes |
+| Google | 6+ OUI prefixes |
+
 ## References
 
 - IEEE 802.11-2020 (formerly 802.11-2016)
 - WPA2 Specification (IEEE 802.11i-2004)
 - WPA3 Specification (Wi-Fi Alliance)
 - Linux Kernel nl80211.h
+- IEEE OUI Registry

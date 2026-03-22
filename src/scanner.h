@@ -8,6 +8,7 @@
 
 #define MAX_NETWORKS 128
 #define IFNAME_SIZE 32
+#define DEFAULT_TIMEOUT_MS 2000
 
 typedef enum {
     SECURITY_OPEN,
@@ -19,14 +20,23 @@ typedef enum {
     SECURITY_UNKNOWN
 } security_type_t;
 
+typedef enum {
+    BAND_UNKNOWN,
+    BAND_2_4GHZ,
+    BAND_5GHZ,
+    BAND_6GHZ
+} wifi_band_t;
+
 typedef struct {
     char ssid[33];
     char bssid[18];
+    char vendor[64];
     security_type_t security;
     char cipher[16];
     int signal_dbm;
     int channel;
     int frequency_mhz;
+    wifi_band_t band;
 } wifi_network_t;
 
 typedef struct {
@@ -36,6 +46,7 @@ typedef struct {
     int nl80211_id;
     wifi_network_t networks[MAX_NETWORKS];
     int network_count;
+    int timeout_ms;
 } scanner_ctx_t;
 
 int scanner_init(scanner_ctx_t *ctx, const char *iface);
@@ -44,5 +55,7 @@ int scanner_scan(scanner_ctx_t *ctx);
 const wifi_network_t *scanner_get_networks(scanner_ctx_t *ctx, int *count);
 wifi_network_t *scanner_get_networks_copy(scanner_ctx_t *ctx, int *count);
 void scanner_free_results(scanner_ctx_t *ctx);
+const char *get_vendor(const char *bssid);
+const char *band_to_string(wifi_band_t band);
 
 #endif
