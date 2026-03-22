@@ -30,17 +30,17 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: nightly
-          name: "Nightly Build 🌙"
+          name: "Nightly Build"
           body: |
-            Автоматична нічна збірка WiFi Scanner.
+            Automatic nightly build of WiFi Scanner.
             
-            **Дата збірки:** ${{ github.event.head_commit.timestamp }}
-            **Коміт:** ${{ github.sha }}
+            **Date of build:** ${{ github.event.head_commit.timestamp }}
+            **Commit:** ${{ github.sha }}
             
-            ### Як використовувати
-            1. Завантажте бінарний файл `wifi-scanner`
-            2. Зробіть його виконуваним: `chmod +x wifi-scanner`
-            3. Запустіть з правами root: `sudo ./wifi-scanner -i wlan0`
+            ### How to use
+            1. Download file `wifi-scanner`
+            2. Make him executeble: `chmod +x wifi-scanner`
+            3. Launch him with root permisions: `sudo ./wifi-scanner -i wlan0`
           files: wifi-scanner
           prerelease: true
           make_latest: true
