@@ -12,6 +12,7 @@
 #include <netlink/genl/ctrl.h>
 #include <netlink/msg.h>
 #include <sys/types.h>
+#include <sys/socket.h>
 #include <net/if.h>
 
 static int scan_callback(struct nl_msg *msg, void *arg);
@@ -711,6 +712,7 @@ int scanner_scan(scanner_ctx_t *ctx) {
     struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
     if (!cb) {
         fprintf(stderr, "Failed to allocate callback\n");
+        nlmsg_free(msg);
         return -1;
     }
     
@@ -756,7 +758,7 @@ static int get_scan_results(scanner_ctx_t *ctx) {
     
     nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, scan_callback, ctx);
     nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, finish_handler, ctx);
-    nl_cb_err(cb, NL_CB_DEBUG, error_handler, NULL);
+    nl_cb_err(cb, NL_CB_CUSTOM, error_handler, NULL);
     
     int ret = nl_send_auto(ctx->sock, msg);
     if (ret < 0) {
@@ -767,6 +769,11 @@ static int get_scan_results(scanner_ctx_t *ctx) {
     }
     
     nlmsg_free(msg);
+    
+    struct timeval tv;
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    setsockopt(nl_socket_get_fd(ctx->sock), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
     while (1) {
         ret = nl_recvmsgs(ctx->sock, cb);
