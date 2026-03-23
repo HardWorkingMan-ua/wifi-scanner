@@ -47,6 +47,7 @@ typedef struct {
     wifi_network_t networks[MAX_NETWORKS];
     int network_count;
     int timeout_ms;
+    int used_cached;
 } scanner_ctx_t;
 
 int scanner_init(scanner_ctx_t *ctx, const char *iface);

@@ -290,7 +290,7 @@ if (freq >= 2400 && freq <= 2500) {
 User runs: sudo ./wifi-scanner -i wlan0 -t 3000 --sort
                     │
                     ▼
-           main.c: Parse CLI args (interface, timeout, sort)
+           main.c: Parse CLI args (interface, timeout, sort, live mode)
                     │
                     ▼
            scanner_init(): Create netlink socket
@@ -299,13 +299,13 @@ User runs: sudo ./wifi-scanner -i wlan0 -t 3000 --sort
            scanner_scan(): Send NL80211_CMD_TRIGGER_SCAN
                     │
                     ▼
-           If busy (connected): use cached results
-                    │
-                    ▼
-           Wait configurable timeout (default 2000ms)
-                    │
-                    ▼
-           Send NL80211_CMD_GET_SCAN (dump)
+            If busy (connected): use cached results (skip wait)
+                     │
+                     ▼
+            If new scan: wait configurable timeout (default 2000ms)
+                     │
+                     ▼
+            Send NL80211_CMD_GET_SCAN (dump)
                     │
                     ▼
            For each BSS entry:
@@ -338,13 +338,15 @@ User runs: sudo ./wifi-scanner -i wlan0 -t 3000 --sort
 
 6. **Configurable timeout**: User can specify scan wait time via `-t` flag, defaulting to 2000ms.
 
-7. **Fallback to cached results**: If interface is busy (connected), automatically uses cached scan results instead of failing.
+7. **Fallback to cached results**: If interface is busy (connected), automatically uses cached scan results instead of failing. Displays "(cached)" indicator when using cached results.
 
 8. **Built-in OUI database**: 573 vendor entries included for MAC vendor lookup without external dependencies.
 
 9. **Band detection**: Automatic classification of networks into 2.4/5/6 GHz bands based on frequency.
 
 10. **Interface auto-detection**: When no interface is specified, automatically lists all wireless interfaces with IPs for user selection.
+
+11. **Live mode**: Continuous scanning with screen clearing for real-time network monitoring.
 
 ## Interface Auto-Detection
 
@@ -370,3 +372,34 @@ static const char* select_interface(void);
 ```
 
 This makes the tool more user-friendly, especially for users who don't know their interface name.
+
+## Live Mode
+
+The scanner supports continuous monitoring with the `-l` flag:
+
+```bash
+sudo ./wifi-scanner -l              # Continuous scanning with default 5s interval
+sudo ./wifi-scanner -l -I 3         # Continuous scanning with 3s interval
+```
+
+### Implementation
+
+Live mode runs in a continuous loop with the following flow:
+
+```
+┌──────────────────────────────────────┐
+│ while (running)                       │
+│  ├─ scanner_scan()                    │
+│  │   └─ (uses cached if interface busy)│
+│  ├─ display_results()                 │
+│  └─ sleep(interval_seconds)           │
+└──────────────────────────────────────┘
+```
+
+### Features
+
+- **Timestamp header**: Shows current time for each scan iteration
+- **Configurable interval**: `-I` flag sets milliseconds between scans (default: 5000ms)
+- **Cached indicator**: Shows "(cached)" when using cached results instead of waiting for new scan
+- **Graceful shutdown**: Handles Ctrl+C for clean exit
+- **Ctrl+C handling**: Graceful shutdown with signal handler

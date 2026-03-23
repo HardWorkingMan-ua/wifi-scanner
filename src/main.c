@@ -12,12 +12,24 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <net/if.h>
+#include <signal.h>
+#include <time.h>
+
+static volatile int running = 1;
+
+static void signal_handler(int sig) {
+    (void)sig;
+    running = 0;
+    printf("\n  Stopping live scan...\n");
+}
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "Usage: %s [options]\n", prog);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -i, --interface <name>  Wireless interface to use\n");
     fprintf(stderr, "  -t, --timeout <ms>     Scan timeout in milliseconds (default: 2000)\n");
+    fprintf(stderr, "  -l, --live            Live mode - continuous scanning\n");
+    fprintf(stderr, "  -I, --interval <ms>   Interval between scans in live mode (default: 5000)\n");
     fprintf(stderr, "  -s, --sort             Sort by signal strength\n");
     fprintf(stderr, "  -j, --json             Output in JSON format\n");
     fprintf(stderr, "  -h, --help             Show this help message\n");
@@ -27,8 +39,8 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "Example:\n");
     fprintf(stderr, "  %s\n", prog);
     fprintf(stderr, "  %s -i wlp2s0\n", prog);
-    fprintf(stderr, "  %s -i wlp2s0 --sort\n", prog);
-    fprintf(stderr, "  %s -t 3000\n", prog);
+    fprintf(stderr, "  %s -i wlp2s0 --live\n", prog);
+    fprintf(stderr, "  %s -i wlp2s0 --live --interval 3000\n", prog);
 }
 
 static double time_diff_ms(struct timeval *start, struct timeval *end) {
@@ -117,17 +129,28 @@ static const char* select_interface(void) {
     return selected;
 }
 
+static void print_timestamp(void) {
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    char buffer[32];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+    printf("\n  [%s]\n", buffer);
+}
+
 int main(int argc, char **argv) {
     const char *iface = NULL;
     int use_json = 0;
     int sort_by_signal = 0;
     int timeout_ms = DEFAULT_TIMEOUT_MS;
-    struct timeval start, end;
+    int live_mode = 0;
+    int interval_ms = 5000;
     int interface_selected = 0;
     
     static struct option long_options[] = {
         {"interface", required_argument, 0, 'i'},
         {"timeout", required_argument, 0, 't'},
+        {"live", no_argument, 0, 'l'},
+        {"interval", required_argument, 0, 'I'},
         {"sort", no_argument, 0, 's'},
         {"json", no_argument, 0, 'j'},
         {"help", no_argument, 0, 'h'},
@@ -135,7 +158,7 @@ int main(int argc, char **argv) {
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "i:t:sjh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "i:t:I:lsjh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'i':
                 iface = optarg;
@@ -150,6 +173,20 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "Warning: Timeout too large, using 30000ms maximum\n");
                     timeout_ms = 30000;
                 }
+                break;
+            case 'I':
+                interval_ms = atoi(optarg);
+                if (interval_ms < 1000) {
+                    fprintf(stderr, "Warning: Interval too small, using 1000ms minimum\n");
+                    interval_ms = 1000;
+                }
+                if (interval_ms > 60000) {
+                    fprintf(stderr, "Warning: Interval too large, using 60000ms maximum\n");
+                    interval_ms = 60000;
+                }
+                break;
+            case 'l':
+                live_mode = 1;
                 break;
             case 's':
                 sort_by_signal = 1;
@@ -183,19 +220,38 @@ int main(int argc, char **argv) {
     
     ctx.timeout_ms = timeout_ms;
     
+    if (live_mode) {
+        signal(SIGINT, signal_handler);
+        signal(SIGTERM, signal_handler);
+        
+        printf("\n  Live mode enabled (interval: %dms, timeout: %dms)\n", interval_ms, timeout_ms);
+        printf("  Press Ctrl+C to stop\n");
+    }
+    
     if (interface_selected) {
         printf("\n");
     }
-    printf("Scanning for WiFi networks on interface %s (timeout: %dms)...\n", iface, timeout_ms);
     
+    struct timeval start, end;
     gettimeofday(&start, NULL);
+    
+    if (live_mode) {
+        print_timestamp();
+        printf("  Scanning on %s...\n", iface);
+    } else {
+        printf("Scanning for WiFi networks on interface %s (timeout: %dms)...\n", iface, timeout_ms);
+    }
+    
     int count = scanner_scan(&ctx);
     gettimeofday(&end, NULL);
     
     if (count < 0) {
-        fprintf(stderr, "Scan failed\n");
         scanner_cleanup(&ctx);
         return 1;
+    }
+    
+    if (ctx.used_cached) {
+        printf("  (cached)\n");
     }
     
     double scan_time = time_diff_ms(&start, &end);
@@ -228,7 +284,62 @@ int main(int argc, char **argv) {
     }
     
     free(networks);
-    scanner_cleanup(&ctx);
     
+    if (!live_mode) {
+        scanner_cleanup(&ctx);
+        return 0;
+    }
+    
+    while (running) {
+        usleep(interval_ms * 1000);
+        
+        struct timeval start2, end2;
+        gettimeofday(&start2, NULL);
+        
+        print_timestamp();
+        printf("  Scanning on %s...\n", iface);
+        
+        int count = scanner_scan(&ctx);
+        gettimeofday(&end2, NULL);
+        
+        if (count < 0) {
+            if (!running) break;
+            fprintf(stderr, "Scan failed, retrying in %dms...\n", interval_ms);
+            continue;
+        }
+        
+        if (ctx.used_cached) {
+            printf("  (cached)\n");
+        }
+        
+        double scan_time2 = time_diff_ms(&start2, &end2);
+        
+        int network_count2;
+        wifi_network_t *networks2 = scanner_get_networks_copy(&ctx, &network_count2);
+        
+        if (sort_by_signal && networks2) {
+            for (int i = 0; i < network_count2 - 1; i++) {
+                for (int j = i + 1; j < network_count2; j++) {
+                    if (networks2[i].signal_dbm < networks2[j].signal_dbm) {
+                        wifi_network_t tmp = networks2[i];
+                        networks2[i] = networks2[j];
+                        networks2[j] = tmp;
+                    }
+                }
+            }
+        }
+        
+        if (use_json) {
+            display_json(networks2, network_count2, iface);
+        } else {
+            display_results(networks2, network_count2, iface);
+        }
+        
+        printf("  Scan completed in %.0f ms\n", scan_time2);
+        
+        free(networks2);
+    }
+    
+    scanner_cleanup(&ctx);
     return 0;
 }

@@ -17,6 +17,7 @@ A lightweight C application for scanning and displaying nearby WiFi networks wit
 - Display scan duration
 - Automatic fallback to cached results when interface is busy
 - **Auto-detect interfaces** - lists all wireless interfaces with IP if none specified
+- **Live mode** - continuous scanning with configurable interval
 
 ## Requirements
 
@@ -87,7 +88,32 @@ sudo ./wifi-scanner -i wlan0 -j
 ### Combined Options
 
 ```bash
-sudo ./wifi-scanner -i wlan0 --sort --timeout 4000
+sudo ./wifi-scanner -i wlp2s0 --sort --timeout 4000
+```
+
+### Live Mode (continuous scanning)
+
+```bash
+sudo ./wifi-scanner -i wlp2s0 --live
+```
+
+### Live Mode with Custom Interval (in milliseconds)
+
+```bash
+sudo ./wifi-scanner -i wlp2s0 --live --interval 3000
+```
+
+**Live mode output:**
+```
+  Live mode enabled (interval: 5000ms, timeout: 2000ms)
+  Press Ctrl+C to stop
+
+  [2024-01-15 10:30:45]
+  Scanning on wlp2s0...
+  ...
+  [2024-01-15 10:30:50]
+  Scanning on wlp2s0...
+  ...
 ```
 
 ### Help

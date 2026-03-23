@@ -681,6 +681,7 @@ void scanner_cleanup(scanner_ctx_t *ctx) {
 
 int scanner_scan(scanner_ctx_t *ctx) {
     ctx->network_count = 0;
+    ctx->used_cached = 0;
     
     int ret;
     
@@ -720,14 +721,16 @@ int scanner_scan(scanner_ctx_t *ctx) {
     
     if (ret < 0) {
         if (ret == -EBUSY || ret == -NLE_BUSY) {
-            fprintf(stderr, "Note: Using cached scan results (interface is busy)\n");
+            ctx->used_cached = 1;
         } else {
             fprintf(stderr, "Scan trigger failed: %s\n", nl_geterror(ret));
             return -1;
         }
     }
     
-    usleep(ctx->timeout_ms * 1000);
+    if (!ctx->used_cached) {
+        usleep(ctx->timeout_ms * 1000);
+    }
     
     return get_scan_results(ctx);
 }
