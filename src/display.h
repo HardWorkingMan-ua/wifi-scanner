@@ -5,5 +5,6 @@
 
 void display_results(const wifi_network_t *networks, int count, const char *iface);
 void display_json(const wifi_network_t *networks, int count, const char *iface);
+int display_csv(const wifi_network_t *networks, int count, const char *iface, const char *filename);
 
 #endif

@@ -2,6 +2,8 @@
 #include "parser.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <errno.h>
 
 static const char *signal_bar(int percent) {
     if (percent >= 80) return "●●●●●";
@@ -15,6 +17,48 @@ static int dbm_to_percent(int dbm) {
     if (dbm >= -50) return 100;
     if (dbm <= -100) return 0;
     return 2 * (dbm + 100);
+}
+
+static void escape_json(const char *src, char *dst, size_t dst_size) {
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j < dst_size - 1; i++) {
+        if (src[i] == '"' || src[i] == '\\') {
+            if (j + 2 < dst_size) {
+                dst[j++] = '\\';
+                dst[j++] = src[i];
+            }
+        } else {
+            dst[j++] = src[i];
+        }
+    }
+    dst[j] = '\0';
+}
+
+static void escape_csv(const char *src, char *dst, size_t dst_size) {
+    size_t j = 0;
+    int has_special = 0;
+    for (size_t i = 0; src[i]; i++) {
+        if (src[i] == '"' || src[i] == ',') {
+            has_special = 1;
+            break;
+        }
+    }
+    
+    if (has_special) {
+        if (j < dst_size - 1) dst[j++] = '"';
+        for (size_t i = 0; src[i] && j < dst_size - 1; i++) {
+            if (src[i] == '"') {
+                if (j < dst_size - 1) dst[j++] = '"';
+            }
+            if (j < dst_size - 1) dst[j++] = src[i];
+        }
+        if (j < dst_size - 1) dst[j++] = '"';
+    } else {
+        for (size_t i = 0; src[i] && j < dst_size - 1; i++) {
+            dst[j++] = src[i];
+        }
+    }
+    dst[j] = '\0';
 }
 
 void display_results(const wifi_network_t *networks, int count, const char *iface) {
@@ -63,11 +107,16 @@ void display_json(const wifi_network_t *networks, int count, const char *iface) 
     for (int i = 0; i < count; i++) {
         const wifi_network_t *net = &networks[i];
         int percent = dbm_to_percent(net->signal_dbm);
+        char escaped_ssid[65];
+        char escaped_vendor[129];
+        
+        escape_json(net->ssid, escaped_ssid, sizeof(escaped_ssid));
+        escape_json(net->vendor, escaped_vendor, sizeof(escaped_vendor));
         
         printf("    {\n");
-        printf("      \"ssid\": \"%s\",\n", net->ssid);
+        printf("      \"ssid\": \"%s\",\n", escaped_ssid);
         printf("      \"ssid_hidden\": %s,\n", net->ssid[0] ? "false" : "true");
-        printf("      \"vendor\": \"%s\",\n", net->vendor);
+        printf("      \"vendor\": \"%s\",\n", escaped_vendor);
         printf("      \"bssid\": \"%s\",\n", net->bssid);
         printf("      \"security\": \"%s\",\n", security_to_string(net->security));
         printf("      \"cipher\": \"%s\",\n", net->cipher);
@@ -81,4 +130,41 @@ void display_json(const wifi_network_t *networks, int count, const char *iface) 
     
     printf("  ]\n");
     printf("}\n");
+}
+
+int display_csv(const wifi_network_t *networks, int count, const char *iface, const char *filename) {
+    FILE *fp = fopen(filename, "w");
+    if (!fp) {
+        fprintf(stderr, "Failed to open %s for writing: %s\n", filename, strerror(errno));
+        return -1;
+    }
+    
+    fprintf(fp, "SSID,Vendor,BSSID,Security,Band,Cipher,Channel,Signal_dBm,Signal_percent,Frequency_MHz,Interface\n");
+    
+    for (int i = 0; i < count; i++) {
+        const wifi_network_t *net = &networks[i];
+        int percent = dbm_to_percent(net->signal_dbm);
+        char escaped_ssid[256];
+        char escaped_vendor[256];
+        
+        escape_csv(net->ssid, escaped_ssid, sizeof(escaped_ssid));
+        escape_csv(net->vendor, escaped_vendor, sizeof(escaped_vendor));
+        
+        fprintf(fp, "%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s\n",
+                escaped_ssid,
+                escaped_vendor,
+                net->bssid,
+                security_to_string(net->security),
+                band_to_string(net->band),
+                net->cipher,
+                net->channel,
+                net->signal_dbm,
+                percent,
+                net->frequency_mhz,
+                iface);
+    }
+    
+    fclose(fp);
+    printf("  CSV written to %s (%d networks)\n", filename, count);
+    return 0;
 }

@@ -809,8 +809,9 @@ static int scan_callback(struct nl_msg *msg, void *arg) {
     struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
     struct nlattr *tb[NL80211_ATTR_MAX + 1];
     struct nlattr *bss[NL80211_BSS_MAX + 1];
-    static struct nla_policy bss_policy[NL80211_BSS_MAX + 1];
+    struct nla_policy bss_policy[NL80211_BSS_MAX + 1];
     
+    memset(bss_policy, 0, sizeof(bss_policy));
     bss_policy[NL80211_BSS_BSSID].type = NLA_UNSPEC;
     bss_policy[NL80211_BSS_INFORMATION_ELEMENTS].type = NLA_UNSPEC;
     bss_policy[NL80211_BSS_BEACON_IES].type = NLA_UNSPEC;

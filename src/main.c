@@ -15,7 +15,7 @@
 #include <signal.h>
 #include <time.h>
 
-#define VERSION "0.0.1"
+#define VERSION "0.0.2"
 
 static volatile int running = 1;
 
@@ -38,6 +38,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -I, --interval <ms>   Interval between scans in live mode (default: 5000)\n");
     fprintf(stderr, "  -s, --sort             Sort by signal strength\n");
     fprintf(stderr, "  -j, --json             Output in JSON format\n");
+    fprintf(stderr, "  -c, --csv <file>       Output to CSV file\n");
     fprintf(stderr, "  -v, --version          Show version\n");
     fprintf(stderr, "  -h, --help             Show this help message\n");
     fprintf(stderr, "\n");
@@ -48,6 +49,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  %s -i wlp2s0\n", prog);
     fprintf(stderr, "  %s -i wlp2s0 --live\n", prog);
     fprintf(stderr, "  %s -i wlp2s0 --live --interval 3000\n", prog);
+    fprintf(stderr, "  %s -i wlp2s0 --csv output.csv\n", prog);
 }
 
 static double time_diff_ms(struct timeval *start, struct timeval *end) {
@@ -83,8 +85,9 @@ static int list_interfaces(char interfaces[][IFNAME_SIZE], char ips[][16], int m
             strncpy(interfaces[count], ifa->ifa_name, IFNAME_SIZE - 1);
             interfaces[count][IFNAME_SIZE - 1] = '\0';
             
+            memset(ips[count], 0, 16);
             struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-            inet_ntop(AF_INET, &addr->sin_addr, ips[count], 16);
+            inet_ntop(AF_INET, &addr->sin_addr, ips[count], 15);
             
             count++;
         }
@@ -119,7 +122,7 @@ static const char* select_interface(void) {
     printf("\n  Select interface [1-%d]: ", count);
     fflush(stdout);
     
-    char line[32];
+    char line[256];
     if (!fgets(line, sizeof(line), stdin)) {
         return NULL;
     }
@@ -152,6 +155,7 @@ int main(int argc, char **argv) {
     int live_mode = 0;
     int interval_ms = 5000;
     int interface_selected = 0;
+    char *csv_filename = NULL;
     
     static struct option long_options[] = {
         {"interface", required_argument, 0, 'i'},
@@ -160,13 +164,14 @@ int main(int argc, char **argv) {
         {"interval", required_argument, 0, 'I'},
         {"sort", no_argument, 0, 's'},
         {"json", no_argument, 0, 'j'},
+        {"csv", required_argument, 0, 'c'},
         {"version", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "i:t:I:lsjvh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "i:t:I:lsjvc:h", long_options, NULL)) != -1) {
         switch (opt) {
             case 'i':
                 iface = optarg;
@@ -201,6 +206,9 @@ int main(int argc, char **argv) {
                 break;
             case 'j':
                 use_json = 1;
+                break;
+            case 'c':
+                csv_filename = optarg;
                 break;
             case 'v':
                 print_version(argv[0]);
@@ -284,6 +292,8 @@ int main(int argc, char **argv) {
     
     if (use_json) {
         display_json(networks, network_count, iface);
+    } else if (csv_filename) {
+        display_csv(networks, network_count, iface, csv_filename);
     } else {
         display_results(networks, network_count, iface);
     }
@@ -310,10 +320,10 @@ int main(int argc, char **argv) {
         print_timestamp();
         printf("  Scanning on %s...\n", iface);
         
-        int count = scanner_scan(&ctx);
+        int scan_result = scanner_scan(&ctx);
         gettimeofday(&end2, NULL);
         
-        if (count < 0) {
+        if (scan_result < 0) {
             if (!running) break;
             fprintf(stderr, "Scan failed, retrying in %dms...\n", interval_ms);
             continue;
@@ -342,6 +352,8 @@ int main(int argc, char **argv) {
         
         if (use_json) {
             display_json(networks2, network_count2, iface);
+        } else if (csv_filename) {
+            display_csv(networks2, network_count2, iface, csv_filename);
         } else {
             display_results(networks2, network_count2, iface);
         }

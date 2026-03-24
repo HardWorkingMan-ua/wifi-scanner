@@ -1,4 +1,4 @@
-# WiFi Scanner v0.0.1
+# WiFi Scanner v0.0.2
 
 A lightweight C application for scanning and displaying nearby WiFi networks with detailed security information.
 
@@ -128,6 +128,12 @@ sudo ./wifi-scanner -i wlp2s0 --live --interval 3000
 
 ```bash
 ./wifi-scanner --version
+```
+
+### CSV Output
+
+```bash
+./wifi-scanner -i wlp2s0 --csv output.csv
 ```
 
 ## Output Format
