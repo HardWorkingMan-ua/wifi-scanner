@@ -4,6 +4,7 @@
 *.so
 wifi-scanner
 wifi-scanner.exe
+*.csv
 
 *.d
 *.deps
