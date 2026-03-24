@@ -15,12 +15,18 @@
 #include <signal.h>
 #include <time.h>
 
+#define VERSION "0.0.1"
+
 static volatile int running = 1;
 
 static void signal_handler(int sig) {
     (void)sig;
     running = 0;
     printf("\n  Stopping live scan...\n");
+}
+
+static void print_version(const char *prog) {
+    printf("%s v%s\n", prog, VERSION);
 }
 
 static void print_usage(const char *prog) {
@@ -32,6 +38,7 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "  -I, --interval <ms>   Interval between scans in live mode (default: 5000)\n");
     fprintf(stderr, "  -s, --sort             Sort by signal strength\n");
     fprintf(stderr, "  -j, --json             Output in JSON format\n");
+    fprintf(stderr, "  -v, --version          Show version\n");
     fprintf(stderr, "  -h, --help             Show this help message\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "If no interface is specified, shows a list of available interfaces.\n");
@@ -153,12 +160,13 @@ int main(int argc, char **argv) {
         {"interval", required_argument, 0, 'I'},
         {"sort", no_argument, 0, 's'},
         {"json", no_argument, 0, 'j'},
+        {"version", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "i:t:I:lsjh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "i:t:I:lsjvh", long_options, NULL)) != -1) {
         switch (opt) {
             case 'i':
                 iface = optarg;
@@ -194,6 +202,9 @@ int main(int argc, char **argv) {
             case 'j':
                 use_json = 1;
                 break;
+            case 'v':
+                print_version(argv[0]);
+                return 0;
             case 'h':
                 print_usage(argv[0]);
                 return 0;

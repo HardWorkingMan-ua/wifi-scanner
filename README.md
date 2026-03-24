@@ -1,6 +1,8 @@
-# WiFi Scanner
+# WiFi Scanner v0.0.1
 
 A lightweight C application for scanning and displaying nearby WiFi networks with detailed security information.
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## Features
 
@@ -122,6 +124,12 @@ sudo ./wifi-scanner -i wlp2s0 --live --interval 3000
 ./wifi-scanner --help
 ```
 
+### Version
+
+```bash
+./wifi-scanner --version
+```
+
 ## Output Format
 
 ### Human-Readable Table
@@ -187,6 +195,7 @@ wifi-scanner/
 │   ├── ARCHITECTURE.md    # Code architecture
 │   ├── API.md            # API documentation
 │   └── SECURITY_DETECTION.md # Security detection details
+├── CHANGELOG.md
 ├── Makefile
 └── README.md
 ```
@@ -224,11 +233,7 @@ The scanner includes a built-in OUI (Organizationally Unique Identifier) databas
 
 ### Interface Busy
 
-If the interface is busy (connected to a network), the scanner will automatically use cached scan results:
-
-```
-Note: Using cached scan results (interface is busy)
-```
+If the interface is busy (connected to a network), the scanner will automatically use cached scan results and display `(cached)` indicator.
 
 To force a new scan, disconnect first:
 ```bash
